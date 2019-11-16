@@ -42,9 +42,8 @@ namespace TestGeneratorLib
             OutputFileFormatter outputFileFormatter = new OutputFileFormatter();
             return outputFileFormatter.MakeTestClassFile(fi);
         }
-
-        // Test internal
-        internal Task<FileInfo> GatherInfo(string testableFileContent)
+        
+        public Task<FileInfo> GatherInfo(string testableFileContent)
         {
             return Task.Run(() =>
             {
