@@ -20,7 +20,7 @@ namespace UnitTest
         private string _testableFileContent;
 
         private const string OutDir = @"../../../Files/out";
-        private const string FilesDir = @"../../../Files/Myclass.cs";
+        private const string FilesDir = @"../../../Files/MyClass.cs";
         private DirectoryInfo outDi = new DirectoryInfo(OutDir);
 
         public static readonly int MaxDegreeOfParallelism = Environment.ProcessorCount;
