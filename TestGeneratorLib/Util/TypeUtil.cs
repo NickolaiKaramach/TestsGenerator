@@ -6,7 +6,7 @@ namespace TestGeneratorLib.Util
     {
         public static object GetDefault(Type type)
         {
-            return (type != null && type.IsValueType) ? Activator.CreateInstance(type) : null;
+            return type != null && type.IsValueType ? Activator.CreateInstance(type) : null;
         }
     }
 }

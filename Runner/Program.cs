@@ -1,15 +1,17 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Threading.Tasks.Dataflow;
 using TestGeneratorLib;
-using TestGeneratorLib.Entity;
+using TestGeneratorLib.OutputUtil;
 
 namespace Runner
 {
-    static class Program
+    internal static class Program
     {
+        private const string SaveDir = @"../../../../UnitTest/Files/out";
         private static readonly int MaxDegreeOfParallelism = Environment.ProcessorCount;
 
         private static readonly List<string> SavedPathes = new List<string>();
@@ -27,11 +29,8 @@ namespace Runner
             async formatTestClassFile => { await SaveFile(formatTestClassFile, SaveDir); },
             ExecutionOptions);
 
-        private const string SaveDir = @"../../../../UnitTest/Files/out";
-
         private static void Main()
         {
-            //Creating conv
             var conveyor = new Conveyor();
             var linkOptions = new DataflowLinkOptions {PropagateCompletion = true};
 
@@ -44,10 +43,7 @@ namespace Runner
             LoadTestableFileBlock.Complete();
             SaveTestClassFileBlock.Completion.Wait();
 
-            foreach (var path in SavedPathes)
-            {
-                Console.WriteLine(path);
-            }
+            foreach (var path in SavedPathes) Console.WriteLine(path);
         }
 
         private static Task SaveFile(OutputFile outputFile, string outDir)
@@ -59,27 +55,24 @@ namespace Runner
             DirectoryWorkMutex.WaitOne();
 
             var savePath = outDir + "//" + fileName + ".cs";
-            while (System.IO.File.Exists(savePath))
-            {
-                savePath = outDir + "//" + fileName + i++ + ".cs";
-            }
+            while (File.Exists(savePath)) savePath = outDir + "//" + fileName + i++ + ".cs";
 
             SavedPathes.Add(savePath);
             var saveToFileTask = Task.Run(() =>
             {
-                using (var saveFileStream = new System.IO.StreamWriter(savePath))
+                using (var saveFileStream = new StreamWriter(savePath))
                 {
                     saveFileStream.Write(toSave.ToCharArray(), 0, toSave.Length);
                 }
             });
-            
+
             DirectoryWorkMutex.ReleaseMutex();
             return saveToFileTask;
         }
 
         private static async Task<string> ReadFileContent(string path)
         {
-            using (var reader = new System.IO.StreamReader(path))
+            using (var reader = new StreamReader(path))
             {
                 return await reader.ReadToEndAsync();
             }

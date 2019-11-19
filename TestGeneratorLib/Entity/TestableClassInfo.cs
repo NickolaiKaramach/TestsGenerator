@@ -1,16 +1,12 @@
 using System.Collections.Generic;
 using System.Linq;
-using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace TestGeneratorLib.Entity
 {
     public class TestableClassInfo
     {
-        private static string _publicModifier = "public";
-        public string Name { get; private set; }
-        public List<BaseMethodInfo> Methods { get; private set; }
-        public List<BaseMethodInfo> Constructors { get; private set; }
+        private const string PublicModifier = "public";
 
         public TestableClassInfo()
         {
@@ -18,30 +14,46 @@ namespace TestGeneratorLib.Entity
             Constructors = new List<BaseMethodInfo>();
         }
 
-        internal void Initialize(ClassDeclarationSyntax cds)
+        public string Name { get; private set; }
+        public List<BaseMethodInfo> Methods { get; }
+        public List<BaseMethodInfo> Constructors { get; }
+
+        internal void Initialize(ClassDeclarationSyntax classDeclaration)
         {
-            Name = cds.Identifier.ToString();
+            Name = classDeclaration.Identifier.ToString();
 
-            foreach (var mds in cds.DescendantNodes().OfType<MethodDeclarationSyntax>())
+            foreach (var mds in classDeclaration.DescendantNodes().OfType<MethodDeclarationSyntax>())
             {
-                SyntaxToken publicToken = mds.ChildTokens().ToList().Find(token => token.ValueText == _publicModifier);
-                if (publicToken == default)
-                    continue;
+                var publicToken = mds
+                    .ChildTokens()
+                    .ToList()
+                    .Find(token => token.ValueText == PublicModifier);
 
-                BaseMethodInfo miToAdd = new BaseMethodInfo();
-                miToAdd.Initialize(mds);
-                Methods.Add(miToAdd);
+                if (publicToken == default)
+                {
+                    continue;
+                }
+
+                var methodInfoToAdd = new BaseMethodInfo();
+                methodInfoToAdd.Initialize(mds);
+                Methods.Add(methodInfoToAdd);
             }
 
-            foreach (var ctor in cds.DescendantNodes().OfType<ConstructorDeclarationSyntax>())
+            foreach (var ctor in classDeclaration.DescendantNodes().OfType<ConstructorDeclarationSyntax>())
             {
-                SyntaxToken publicToken = cds.ChildTokens().ToList().Find(token => token.ValueText == _publicModifier);
-                if (publicToken == default)
-                    continue;
+                var publicToken = classDeclaration
+                    .ChildTokens()
+                    .ToList()
+                    .Find(token => token.ValueText == PublicModifier);
 
-                BaseMethodInfo miToAdd = new BaseMethodInfo();
-                miToAdd.Initialize(ctor);
-                Constructors.Add(miToAdd);
+                if (publicToken == default)
+                {
+                    continue;
+                }
+
+                var methodInfoToAdd = new BaseMethodInfo();
+                methodInfoToAdd.Initialize(ctor);
+                Constructors.Add(methodInfoToAdd);
             }
         }
     }

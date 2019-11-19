@@ -8,7 +8,6 @@ namespace TestGeneratorLib.Entity
 {
     public class FileInfo
     {
-        public List<NamespaceInfo> Namespaces { get; private set; }
         private SyntaxTree _tree;
 
         public FileInfo()
@@ -16,16 +15,18 @@ namespace TestGeneratorLib.Entity
             Namespaces = new List<NamespaceInfo>();
         }
 
+        public List<NamespaceInfo> Namespaces { get; }
+
         public void Initialize(string fileContent)
         {
             _tree = CSharpSyntaxTree.ParseText(fileContent);
-            SyntaxNode root = _tree.GetRoot();
-            
-            foreach (NamespaceDeclarationSyntax ns in root.DescendantNodes().OfType<NamespaceDeclarationSyntax>())
+            var root = _tree.GetRoot();
+
+            foreach (var namespaceDeclaration in root.DescendantNodes().OfType<NamespaceDeclarationSyntax>())
             {
-                NamespaceInfo niToAdd = new NamespaceInfo();
-                niToAdd.Initialize(ns);
-                Namespaces.Add(niToAdd);
+                var namespaceInfoToAdd = new NamespaceInfo();
+                namespaceInfoToAdd.Initialize(namespaceDeclaration);
+                Namespaces.Add(namespaceInfoToAdd);
             }
         }
     }

@@ -9,38 +9,37 @@ using System.Threading.Tasks;
 using System.Threading.Tasks.Dataflow;
 using NUnit.Framework;
 using TestGeneratorLib;
-using TestGeneratorLib.Entity;
-using FileInfo = System.IO.FileInfo;
+using TestGeneratorLib.OutputUtil;
 
 namespace UnitTest
 {
     public class ConveyorTest
     {
-        private Conveyor _conv;
-        private string _testableFileContent;
-
         private const string OutDir = @"../../../Files/out";
         private const string FilesDir = @"../../../Files/MyClass.cs";
-        private DirectoryInfo outDi = new DirectoryInfo(OutDir);
 
-        public static readonly int MaxDegreeOfParallelism = Environment.ProcessorCount;
+        private static readonly int MaxDegreeOfParallelism = Environment.ProcessorCount;
 
         private static readonly ExecutionDataflowBlockOptions ExecutionOptions =
             new ExecutionDataflowBlockOptions {MaxDegreeOfParallelism = MaxDegreeOfParallelism};
 
+        private readonly Mutex _directoryWorkMutex = new Mutex();
+
         private readonly DataflowLinkOptions _linkOptions =
             new DataflowLinkOptions {PropagateCompletion = true};
 
-        private ActionBlock<OutputFile> _saveTestClassFileBlock;
+        private Conveyor _conv;
 
-        private readonly Mutex _directoryWorkMutex = new Mutex();
+        private ActionBlock<OutputFile> _saveTestClassFileBlock;
+        private string _testableFileContent;
+        private readonly DirectoryInfo _outDir = new DirectoryInfo(OutDir);
 
         [SetUp]
         public void Setup()
         {
             ClearOutDir();
 
-            using (var sr = new System.IO.StreamReader(FilesDir))
+            using (var sr = new StreamReader(FilesDir))
             {
                 _testableFileContent = sr.ReadToEnd();
             }
@@ -55,28 +54,26 @@ namespace UnitTest
         {
             _conv = new Conveyor();
 
-            Task<TestGeneratorLib.Entity.FileInfo> gatherTask = _conv.GatherInfo(_testableFileContent);
+            var gatherTask = Conveyor.GatherInfo(_testableFileContent);
             gatherTask.Wait();
-            TestGeneratorLib.Entity.FileInfo actual = gatherTask.Result;
+            var actual = gatherTask.Result;
 
-            FileInfo expected;
-
-            List<NamespaceInfo> actualNs = actual.Namespaces;
+            var actualNs = actual.Namespaces;
             Assert.AreEqual(1, actualNs.Count);
             Assert.AreEqual("UnitTest.Files", actualNs[0].Name);
 
-            List<TestableClassInfo> actualClasses = actual.Namespaces[0].Classes;
+            var actualClasses = actual.Namespaces[0].Classes;
             Assert.AreEqual(1, actualClasses.Count);
             Assert.AreEqual("MyClass", actualClasses[0].Name);
 
-            List<BaseMethodInfo> actualConstructors = actualClasses[0].Constructors;
+            var actualConstructors = actualClasses[0].Constructors;
             Assert.AreEqual(1, actualConstructors.Count);
 
             Assert.AreEqual("MyClass", actualConstructors[0].Name);
             Assert.AreEqual(0, actualConstructors[0].ParamTypeNamesByParamName.Count);
             Assert.AreEqual(null, actualConstructors[0].ReturnTypeName);
 
-            List<BaseMethodInfo> actualMethods = actualClasses[0].Methods;
+            var actualMethods = actualClasses[0].Methods;
             Assert.AreEqual(2, actualMethods.Count);
 
             Assert.AreEqual("PublicVoidMethod1", actualMethods[0].Name);
@@ -97,7 +94,7 @@ namespace UnitTest
         [Test]
         public void ParallelWorkTest()
         {
-            Stopwatch sw = new Stopwatch();
+            var sw = new Stopwatch();
 
             sw.Restart();
             _conv = new Conveyor();
@@ -107,7 +104,7 @@ namespace UnitTest
             _conv.Complete();
             _saveTestClassFileBlock.Completion.Wait();
             sw.Stop();
-            long oneFileProcessingElapsed = sw.ElapsedMilliseconds;
+            var oneFileProcessingElapsed = sw.ElapsedMilliseconds;
 
             _saveTestClassFileBlock = new ActionBlock<OutputFile>(
                 async formatTestClassFile => { await SaveFile(formatTestClassFile, OutDir); },
@@ -125,32 +122,29 @@ namespace UnitTest
             _conv.Completion.Wait();
             _saveTestClassFileBlock.Completion.Wait();
             sw.Stop();
-            long twoFileProcessingElapsed = sw.ElapsedMilliseconds;
+            var twoFileProcessingElapsed = sw.ElapsedMilliseconds;
 
             Assert.Less(twoFileProcessingElapsed, 2 * oneFileProcessingElapsed);
             FileAssert.Exists(OutDir + @"/MyClassTests.cs");
             FileAssert.Exists(OutDir + @"/MyClassTests0.cs");
             FileAssert.Exists(OutDir + @"/MyClassTests1.cs");
-            FileInfo fi1 = Array.Find(outDi.GetFiles(), fi => fi.Name == "MyClassTests.cs");
-            FileInfo fi2 = Array.Find(outDi.GetFiles(), fi => fi.Name == "MyClassTests0.cs");
-            FileInfo fi3 = Array.Find(outDi.GetFiles(), fi => fi.Name == "MyClassTests1.cs");
+            var fi1 = Array.Find(_outDir.GetFiles(), fi => fi.Name == "MyClassTests.cs");
+            var fi2 = Array.Find(_outDir.GetFiles(), fi => fi.Name == "MyClassTests0.cs");
+            var fi3 = Array.Find(_outDir.GetFiles(), fi => fi.Name == "MyClassTests1.cs");
             Assert.AreEqual(fi1.Length, fi2.Length);
             Assert.AreEqual(fi2.Length, fi3.Length);
         }
 
         private void ClearOutDir()
         {
-            foreach (FileInfo file in outDi.GetFiles())
-            {
-                file.Delete();
-            }
+            foreach (var file in _outDir.GetFiles()) file.Delete();
         }
 
-        private void ClearCache()
+        private static void ClearCache()
         {
             ObjectCache cache = MemoryCache.Default;
-            List<string> cacheKeys = cache.Select(kvp => kvp.Key).ToList();
-            foreach (string cacheKey in cacheKeys)
+            var cacheKeys = cache.Select(kvp => kvp.Key).ToList();
+            foreach (var cacheKey in cacheKeys)
             {
                 cache.Remove(cacheKey);
             }
@@ -158,23 +152,19 @@ namespace UnitTest
 
         private Task SaveFile(OutputFile ff, string outDir)
         {
-            string toSave = ff.Content;
-            string fName = ff.Name + "Tests";
-            int i = 0;
-            string savePath = null;
+            var toSave = ff.Content;
+            var fName = ff.Name + "Tests";
+            var i = 0;
 
             _directoryWorkMutex.WaitOne();
 
-            savePath = outDir + "//" + fName + ".cs";
-            if (File.Exists(savePath))
+            var savePath = outDir + "//" + fName + ".cs";
+            while (File.Exists(savePath))
             {
-                do
-                {
-                    savePath = outDir + "//" + fName + i++ + ".cs";
-                } while (File.Exists(savePath));
+                savePath = outDir + "//" + fName + i++ + ".cs";
             }
 
-            Task saveToFileTask = Task.Run(() =>
+            var saveToFileTask = Task.Run(() =>
             {
                 using (var saveFileStream = new StreamWriter(savePath))
                 {

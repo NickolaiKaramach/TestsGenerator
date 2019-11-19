@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -12,13 +13,13 @@ namespace TestGeneratorLib.OutputUtil
     {
         private const int StringBuilderInitCapacity = 16 * 1024;
         private const string Tab = "    ";
-        private string _testObjectVarName;
         private readonly StringBuilder _sb = new StringBuilder(StringBuilderInitCapacity);
 
         private int _stackFrameBaseNumber;
 
         private FileInfo _testableFileInfo;
-        
+        private string _testObjectVarName;
+
         internal Task<OutputFile> MakeTestClassFile(FileInfo testableFileInfo)
         {
             return Task.Run(() =>
@@ -37,30 +38,27 @@ namespace TestGeneratorLib.OutputUtil
         private string MakeTestClassFileContent()
         {
             _stackFrameBaseNumber = new StackTrace().FrameCount;
-            
-            AppendLine(@"using System;
-                using System.Collections.Generic;
-                using System.Linq;
-                using System.Text;
-                using NUnit.Framework;
-                using Moq;"
-            );
 
-            foreach (NamespaceInfo ns in _testableFileInfo.Namespaces)
+            AppendLine(@"using System;");
+            AppendLine(@"using System.Collections.Generic;");
+            AppendLine(@"using System.Linq;");
+            AppendLine(@"using System.Text;");
+            AppendLine(@"using NUnit.Framework;");
+            AppendLine(@"using Moq;");
+
+            foreach (var namespaceInfo in _testableFileInfo.Namespaces)
             {
-                AppendFormat("using {0};\n", ns.Name);
+                AppendFormat("using {0};\n", namespaceInfo.Name);
             }
 
             AppendLine();
 
             AppendFormat("namespace {0}.Tests\n", _testableFileInfo.Namespaces[0].Name);
             AppendLine("{");
-            foreach (NamespaceInfo ns in _testableFileInfo.Namespaces)
+            foreach (var testableClassInfo in _testableFileInfo.Namespaces.SelectMany(namespaceInfo =>
+                namespaceInfo.Classes))
             {
-                foreach (TestableClassInfo ci in ns.Classes)
-                {
-                    AddTestClass(ci);
-                }
+                AddTestClass(testableClassInfo);
             }
 
             AppendLine("}");
@@ -87,9 +85,11 @@ namespace TestGeneratorLib.OutputUtil
 
         private void AddIndent()
         {
-            int currDepth = new StackTrace().FrameCount;
-            for (int i = 0; i < currDepth - 2 - _stackFrameBaseNumber; i++)
+            var currDepth = new StackTrace().FrameCount;
+            for (var i = 0; i < currDepth - 2 - _stackFrameBaseNumber; i++)
+            {
                 _sb.Append(Tab);
+            }
         }
 
         private void AddTestClass(TestableClassInfo testableClassInfo)
@@ -97,9 +97,10 @@ namespace TestGeneratorLib.OutputUtil
             AppendFormat("public class {0}Tests\n", testableClassInfo.Name);
             AppendLine("{");
             AddSetUp(testableClassInfo);
-            foreach (BaseMethodInfo mi in testableClassInfo.Methods)
+
+            foreach (var methodInfo in testableClassInfo.Methods)
             {
-                AddMethodTest(mi);
+                AddMethodTest(methodInfo);
             }
 
             AppendLine("}");
@@ -114,27 +115,9 @@ namespace TestGeneratorLib.OutputUtil
             AppendFormat("private {0} {1};\n", testableClassInfo.Name, _testObjectVarName);
 
             if (testableClassInfo.Constructors.Any())
-                foreach (var kvp in testableClassInfo.Constructors[0]
-                    .ParamTypeNamesByParamName)
-                {
-                    string varName = StringUtil.GetPrivateVarName(kvp.Key);
-                    if (kvp.Value[0] == 'I')
-                    {
-                        AppendFormat("private Mock<{0}> {1};\n", kvp.Value, varName);
-                        mockTypesByVarName.Add(new KeyValuePair<string, string>(varName, kvp.Value));
-                    }
-                    else
-                    {
-                        string fullTypeName = StringUtil.GetFullTypeName(kvp.Value);
-                        System.Type type = System.Type.GetType(fullTypeName);
-                        object defaultValue = TypeUtil.GetDefault(type);
-                        
-                        AppendFormat("private {0} {1} = {2};\n",
-                            kvp.Value,
-                            StringUtil.GetPrivateVarName(kvp.Key),
-                            defaultValue ?? "null");
-                    }
-                }
+            {
+                AddConstructors(testableClassInfo, mockTypesByVarName);
+            }
 
             AppendLine();
 
@@ -149,22 +132,49 @@ namespace TestGeneratorLib.OutputUtil
             AppendLine();
         }
 
-        private void AddSetUpArrange(TestableClassInfo classInfo, List<KeyValuePair<string, string>> mockTypesByVarName)
+        private void AddConstructors(TestableClassInfo testableClassInfo,
+            ICollection<KeyValuePair<string, string>> mockTypesByVarName)
+        {
+            foreach (var (key, value) in testableClassInfo.Constructors[0]
+                .ParamTypeNamesByParamName)
+            {
+                var varName = StringUtil.GetPrivateVarName(key);
+                if (value[0] == 'I')
+                {
+                    AppendFormat("private Mock<{0}> {1};\n", value, varName);
+                    mockTypesByVarName.Add(new KeyValuePair<string, string>(varName, value));
+                }
+                else
+                {
+                    var fullTypeName = StringUtil.GetFullTypeName(value);
+                    var type = Type.GetType(fullTypeName);
+                    var defaultValue = TypeUtil.GetDefault(type);
+
+                    AppendFormat("private {0} {1} = {2};\n",
+                        value,
+                        StringUtil.GetPrivateVarName(key),
+                        defaultValue ?? "null");
+                }
+            }
+        }
+
+        private void AddSetUpArrange(TestableClassInfo classInfo,
+            IEnumerable<KeyValuePair<string, string>> mockTypesByVarName)
         {
             if (!classInfo.Constructors.Any())
-                return;
-
-            foreach (var kvp in mockTypesByVarName)
             {
-                AppendFormat("{0} = new Mock<{1}>();\n", kvp.Key, kvp.Value);
+                return;
             }
+
+            foreach (var (key, value) in mockTypesByVarName) AppendFormat("{0} = new Mock<{1}>();\n", key, value);
 
             AppendFormat("{0} = new {1}(", _testObjectVarName, classInfo.Name);
 
-            List<KeyValuePair<string, string>> paramPairs = classInfo
+            var paramPairs = classInfo
                 .Constructors[0]
                 .ParamTypeNamesByParamName;
-            for (int i = 0; i < paramPairs.Count - 1; i++)
+
+            for (var i = 0; i < paramPairs.Count - 1; i++)
             {
                 AppendNoIndent(StringUtil.GetPrivateVarName(paramPairs[i].Key) + ".Object, ");
             }
@@ -183,9 +193,11 @@ namespace TestGeneratorLib.OutputUtil
             AppendFormat("public void {0}Test()\n", methodInfo.Name);
 
             AppendLine("{");
+
             AddMethodTestArrange(methodInfo);
             AddMethodTestAct(methodInfo);
             AddMethodTestAssert(methodInfo);
+
             AppendLine("}");
 
             AppendLine();
@@ -193,20 +205,21 @@ namespace TestGeneratorLib.OutputUtil
 
         private void AddMethodTestArrange(BaseMethodInfo methodInfo)
         {
-            foreach (var kvp in methodInfo.ParamTypeNamesByParamName)
+            foreach (var (key, value) in methodInfo.ParamTypeNamesByParamName)
             {
-                string fullTypeName = StringUtil.GetFullTypeName(kvp.Value);
-                System.Type type = System.Type.GetType(fullTypeName);
-                object defaultValue = TypeUtil.GetDefault(type);
+                var fullTypeName = StringUtil.GetFullTypeName(value);
+                var type = Type.GetType(fullTypeName);
+                var defaultValue = TypeUtil.GetDefault(type);
+
                 AppendFormat("{0} {1} = {2};\n",
-                    kvp.Value,
-                    kvp.Key,
+                    value,
+                    key,
                     defaultValue ?? "null");
             }
 
             AppendLine();
         }
-        
+
         private void AddMethodTestAct(BaseMethodInfo methodInfo)
         {
             if (methodInfo.ReturnTypeName != "void")
@@ -215,10 +228,12 @@ namespace TestGeneratorLib.OutputUtil
                 AppendNoIndent(_testObjectVarName + "." + methodInfo.Name + "(");
             }
             else
+            {
                 AppendFormat("{0}", _testObjectVarName + "." + methodInfo.Name + "(");
+            }
 
-            List<KeyValuePair<string, string>> paramPairs = methodInfo.ParamTypeNamesByParamName;
-            for (int i = 0; i < paramPairs.Count - 1; i++)
+            var paramPairs = methodInfo.ParamTypeNamesByParamName;
+            for (var i = 0; i < paramPairs.Count - 1; i++)
             {
                 AppendNoIndent(paramPairs[i].Key + ", ");
             }
@@ -237,9 +252,9 @@ namespace TestGeneratorLib.OutputUtil
         {
             if (methodInfo.ReturnTypeName != "void")
             {
-                string fullTypeName = StringUtil.GetFullTypeName(methodInfo.ReturnTypeName);
-                System.Type type = System.Type.GetType(fullTypeName);
-                object defaultValue = TypeUtil.GetDefault(type);
+                var fullTypeName = StringUtil.GetFullTypeName(methodInfo.ReturnTypeName);
+                var type = Type.GetType(fullTypeName);
+                var defaultValue = TypeUtil.GetDefault(type);
 
                 AppendFormat("{0} expected = {1};\n", methodInfo.ReturnTypeName, defaultValue);
                 AppendLine("Assert.That(actual, Is.EqualTo(expected));");

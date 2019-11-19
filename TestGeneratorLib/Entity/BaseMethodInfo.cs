@@ -14,12 +14,23 @@ namespace TestGeneratorLib.Entity
 
         public void Initialize(BaseMethodDeclarationSyntax methodDeclarationSyntax)
         {
-            Name = methodDeclarationSyntax.ChildTokens().Last().ToString();
+            Name = methodDeclarationSyntax
+                .ChildTokens()
+                .Last()
+                .ToString();
 
-            ReturnTypeName = methodDeclarationSyntax.ChildNodes().OfType<TypeSyntax>().FirstOrDefault()?.ToString();
+            ReturnTypeName = methodDeclarationSyntax
+                .ChildNodes()
+                .OfType<TypeSyntax>()
+                .FirstOrDefault()
+                ?.ToString();
 
-            ParamTypeNamesByParamName = methodDeclarationSyntax.DescendantNodes().OfType<ParameterSyntax>()
-                .Select(ps => new KeyValuePair<string, string>(ps.Identifier.ToString(), ps.Type.ToString()))
+            ParamTypeNamesByParamName = methodDeclarationSyntax
+                .DescendantNodes()
+                .OfType<ParameterSyntax>()
+                .Select(parameterSyntax =>
+                    new KeyValuePair<string, string>(parameterSyntax.Identifier.ToString(),
+                        parameterSyntax.Type.ToString()))
                 .ToList();
         }
     }
